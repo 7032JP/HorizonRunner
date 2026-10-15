@@ -1,26 +1,23 @@
 * ============================================================
-* ipl.s — FM-7 IPL (ブートセクタ、 $0100 または $0300 でロード
-*                   され $FB00 へ relocate して実行)
+* asm_ipl.s — FM-7 IPL (ブートセクタ。 読み込まれた位置から $FB00 へ
+*                       relocate して実行)
 *
-* ブート ROM が track0/side0/sector1 (256 byte) を読み込み JMP する。
-* ロード先は各ブート ROM 内の固定定数で決まる (= ディスク側マーカー不問):
-*   BASIC モード (BASIC モードのブート ROM / 標準)  → $0100, JMP $0100
-*   DOS   モード (DOS モードのブート ROM)         → $0300, JMP $0300
-*   FM77AV の起動 ROM は BASIC/DOS ブート ROM 像を $FE00 にコピーして
-*   実行するので、AV でも結局 $0100 (標準) / $0300 (DOS) と同じ。
-* (IPL 入口は DP=$00 / SP=$FC7F = FM-7/FM77AV ブート仕様)
-* 同一 ipl.bin が $0100 でも $0300 でもロードされ得るので、 IPL は PCR で
-* 自分の現在位置を取得し、 自分 256 byte を高位 RAM $FB00 へコピー
-* (= トランポリン) して位置非依存で実行する。 本体は config.mk の ORG
-* (= 既定 $0400、 $0100/$0300 の IPL ロード域を両方避ける) へ展開する。
+* ブート ROM が track0/side0/sector1 (256 byte) をメモリに読み込み、 その
+* 先頭へ JMP する。 読み込み先のアドレスはブート ROM が決めるので、 IPL は
+* それに頼らない: PCR で自分の現在位置を取得し、 自分 256 byte を高位
+* RAM $FB00 へコピー (= トランポリン) して位置非依存で実行する。 移す
+* までの区間ではスタックも DP も使わない (clr $FD0F は拡張アドレス指定)。
+* 本体は config.mk の ORG (= 既定 $0400) へ展開する。 本体が IPL の
+* 読み込み先と重なっても、 IPL は既に $FB00 へ移っているので差し支えない。
 *
 * 実行フロー:
-*   1. boot ROM が IPL (本ファイル) を $0100/$0300 にロード → JMP
+*   1. boot ROM が IPL (本ファイル) をメモリに読み込み、 先頭へ JMP
 *   2. IPL 先頭の bootstrap が自分 256 byte を $FB00 へコピー (PCR)
 *   3. JMP $FB?? でコピー後の IPL 本体へ
-*   4. FDC を叩いて sector 2 以降を ORG ($0400) へ展開 (= 複数 track/side
+*   4. FDC を操作して sector 2 以降を ORG ($0400) へ展開 (= 複数 track/side
 *      にまたがる場合は自動的に SEEK しながらシーケンシャル read)
-*   5. JMP ORG ($0400) で main() へ
+*   5. JMP ORG ($0400) で本体の入口 (asm_crt0.s の _start) へ。 そこで
+*      スタックを張ってから main() へ進む
 *
 * 本体配置 (= bin2d77.py と一致):
 *   body_idx 0   : track 0 / side 0 / sec 2    (IPL の次から)
@@ -34,9 +31,10 @@
 *           side  = (flat / 16) % 2
 *           sec   = (flat % 16) + 1
 *
-*   body_sectors は 1 byte (= 最大 255 sector = ~63.5 KB)。 本テンプレ
-*   は最大 248 sector (= 62 KB、 track 7 / side 1 / sec 9 まで) を
-*   サポート対象とする。
+*   body_sectors は 1 byte。 本体の上限は bin2d77.py が ORG と
+*   RELOC_FLOOR ($FA00。 IPL の写し $FB00 の手前) から
+*   (RELOC_FLOOR - ORG) / 256 sector と決める (ORG = $0400 なら
+*   246 sector = 62,976 byte。 track 7 / side 1 / sec 7 まで)。
 *
 * メタデータ:
 *   bin2d77.py が IPL バイナリ +2 オフセット の body_sectors を
@@ -60,7 +58,7 @@ FDC_DRVSEL      equ     $FD1D           * Drive (bit0-1) / Motor (bit7)
 ST_BUSY         equ     $01
 ST_DRQ          equ     $02
 CMD_READ        equ     $80             * Read Sector (single)
-CMD_SEEK        equ     $1B             * Seek + verify + head load + 30ms step
+CMD_SEEK        equ     $1B             * Seek + head load + 30ms step (verify なし)
 
                 org     $FB00           * relocate 先 = 実行アドレス
 
@@ -69,7 +67,8 @@ start:
 meta:
 body_sectors    fcb     1               * +2: body sector 数 (bin2d77.py が書き換え)
                 fcb     0,0,0,0,0,0,0,0,0,0,0,0,0
-                                        * meta 全体で $FB00-$FB0F まで
+                                        * 先頭の bra 2 byte を含め $FB00-$FB0F
+                                        * の 16 byte (meta 自体は $FB02 から 14 byte)
 
 code:
 * ---- bootstrap (この区間は boot ROM のロード位置で実行される) ----
@@ -78,17 +77,15 @@ code:
 *    (= $FB00 にはまだ何もコピーされていない)
 *
 *    PCR で「自分の今いる位置」 を取得して、 そこから $FB00 へ
-*    relocate する。 これで $0100 (BASIC) / $0300 (DOS) どちらに
-*    ロードされても正しく自分自身を $FB00 へコピーできる。
+*    relocate する。 これで読み込み先が $FB00-$FBFF と重ならない限り、
+*    どこにロードされても自分自身を $FB00 へコピーできる。
 *
 *    先に F-BASIC ROM overlay を OFF にする (= $FD0F へ write)。
-*    これをやらないと $FB?? は overlay 越しに F-BASIC ROM (zero 列)
-*    を読むことになって、 relocate 先の JMP 後に CPU が NEG <$00 を
-*    延々と実行する羽目になる。
+*    $FB00 付近が ROM のままだと、 写した自分を実行できない。
                 clr     $FD0F           * disable F-BASIC ROM overlay
 
                 leax    start,pcr       * X = 現在の `start` 位置 (= ロード base)
-                ldy     #start          * Y = $FB00 (= relocate 先 = ORG)
+                ldy     #start          * Y = $FB00 (= relocate 先)
 copy_loop:
                 lda     ,x+
                 sta     ,y+
@@ -99,7 +96,8 @@ copy_loop:
 * ---- ipl_main (ここから先は $FBxx で実行される) ----------------
 ipl_main:
                 orcc    #$50            * IRQ/FIRQ マスク
-                                        * SP/DP は boot ROM 設定済 (SP=$FC7F, DP=0)
+                                        * (以後もスタックと DP は使わない。
+                                        *  本体が crt0 で自分のスタックを張る)
 
                 lda     #$80            * motor on / drive 0
                 sta     FDC_DRVSEL
@@ -107,8 +105,8 @@ ipl_main:
                 clr     FDC_TRK         * track 0 (= boot ROM 状態を踏襲)
 
                 lda     #BODY_LOAD/256  * X = BODY_LOAD (= ORG) を D 経由で組む
-                clrb                    * (ORG はページ境界前提で下位=0。 直 LDX
-                tfr     d,x             *  #imm は NEW BOOT 誤検出の元なので回避)
+                clrb                    * (ORG はページ境界前提で下位=0)
+                tfr     d,x
 
                 ldb     body_sectors    * B = 残セクタ数 ($FB02 を読む)
                 clr     cur_track
@@ -123,11 +121,9 @@ read_one:
                 lda     #CMD_READ
                 sta     FDC_CMD
 
-* MB8877 仕様: CMD 書込から BUSY=1 になるまで ~14μs (~28 cycles)
-* かかる。 即 status を読むと BUSY=0/DRQ=0 で「完了」 と誤判定する
-* (CMD 書込で即 BUSY=1 にする緩い実装のエミュなら問題ないが、
-* 実機準拠タイミングのエミュ / 実機ではここで死ぬ)。 まず BUSY=1
-* を確認してから DRQ ループへ。
+* FDC はコマンドを書いてから BUSY=1 になるまでに数十 cycle の遅れがある。
+* 即 status を読むと BUSY=0/DRQ=0 で「完了」 と誤判定する。
+* まず BUSY=1 を確認してから DRQ ループへ。
 read_wait_busy:
                 lda     FDC_CMD
                 bita    #ST_BUSY
@@ -181,7 +177,7 @@ seek_wait_done:
                 bra     read_one
 
 all_done:
-                jmp     BODY_LOAD       * JMP ORG ($0400) → main()
+                jmp     BODY_LOAD       * JMP ORG ($0400) → 本体の入口 (asm_crt0.s の _start)
 
 cur_sec         fcb     0
 cur_side        fcb     0
