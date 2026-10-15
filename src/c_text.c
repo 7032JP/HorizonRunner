@@ -2,9 +2,10 @@
  * c_text.c — 文字を VRAM へ直に書く (実装)
  *
  * 1 行 (8 line のうちの 1 line) ぶんを 1 つの WRITE 命令にまとめて送る。
- * WRITE は [cmd, 番地上, 番地下, 個数] の 4 byte が頭に付くので、字数を n
- * とすると 1 字 8 line で 8 * (4 + n) byte になる。キューは 108 byte
- * しか無いが、q_reserve() が溢れる前に勝手に送ってくれる。
+ * WRITE は [cmd, アドレス上位, アドレス下位, 個数] の 4 byte が頭に付くので、
+ * n 字を 8 line ぶん送ると 8 x (4 + n) byte (横 2 倍は 1 字 2 byte なので
+ * 8 x (4 + 2n) byte) になる。キューは 108 byte しか無いが、溢れる前に
+ * q_reserve() が sub_flush() する。
  *
  * ★ ここは毎フレームまわる場所ではない。とはいえ掛け算の実行時呼出は
  *   避けたいので、line * 80 は「64 倍 + 16 倍」の足し算で作る (CMOC は
@@ -32,10 +33,15 @@ static unsigned char glyph_of(char c)
     if (c == '-') return 37;
     if (c == '.') return 38;
     if (c == '!') return 39;
+    if (c == '=') return 40;
+    /* 小文字の a-d、f-i はテンキーの図の矢印 (a = 1 の向き … i = 9。
+     * e = 5 は図では数字の 5 を出すので字形が無い) で 41-48 */
+    if (c >= 'a' && c <= 'd') return (unsigned char)(c - 'a' + 41);
+    if (c >= 'f' && c <= 'i') return (unsigned char)(c - 'f' + 45);
     return 0;                       /* 知らない字は空白にする */
 }
 
-/* 面の先頭 + line * 80 + byte */
+/* プレーンの先頭 + line * 80 + byte */
 static unsigned int vram_at(unsigned int plane, unsigned char xb,
                             unsigned char y)
 {

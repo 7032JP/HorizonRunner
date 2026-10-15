@@ -4,16 +4,17 @@
 なぜ自前で持つのか:
 
   本体はサブ CPU を自前の描画プログラムで乗っ取っているので、サブシステム
-  ROM の内蔵フォント (PRINT) はもう呼べない。かといってサブ側のコード枠
-  ($C100-$CF7F) は残り 51 byte しか無く、フォントを置く余地は無い。
+  ROM の内蔵フォント (PRINT) はもう呼べない。かといってサブ側のコードの領域
+  ($C100-$CF7F) は描画プログラムと絵でほぼ埋まっていて (残りの量はビルド時に
+  scripts/check_layout.py が表示する)、フォントを置く余地は無い。
   そこで **フォントの実体はメイン CPU 側に置き**、既存の WRITE 命令
-  (サブ側の番地へ n byte 書く) で VRAM へ直接流し込む。サブ側のコードも
+  (サブ側のアドレスへ n byte 書く) で VRAM へ直接流し込む。サブ側のコードも
   データも 1 byte も増えない。
 
 字形:
-  5 dot 幅 x 7 line の字を 8x8 の枠へ左詰めで入れる (右 3 dot と最下行が
+  5 dot 幅 x 7 line の字を 8x8 の範囲へ左詰めで入れる (右 3 dot と最下行が
   字間・行間になる)。bit7 が左端。FM-7 の画素は縦長なので、この 8x8 は
-  画面上では細長く見える。題字のように大きく出したい所は、メイン側で
+  画面上では細長く見える。タイトルの文字のように大きく出したい所は、メイン側で
   **横だけ 2 倍**に伸ばして貼る (縦横比がほぼ正方に見える)。
 
 使い方 (= Makefile 経由で自動実行):
@@ -21,6 +22,9 @@
 """
 
 import sys
+
+GLYPH_COLS = 5      # 字形の幅 (dot)
+GLYPH_ROWS = 7      # 字形の高さ (line)。8 行目は行間
 
 # 字形。'#' が点灯。5 dot 幅 x 7 line で書く (足りない行は空行で埋める)。
 GLYPHS = {
@@ -298,10 +302,84 @@ GLYPHS = {
           "..#..",
           "",
           "..#.."),
+    '=': ("",
+          "",
+          "#####",
+          "",
+          "#####",
+          "",
+          ""),
 }
 
+# タイトル画面のテンキーの図で使う矢印。小文字の a-i のうち e (テンキー
+# 5 の位置。図では数字の 5 をそのまま出す) を除く 8 字に、テンキーの
+# 数字の順で割り当てる (a = 1 の左下 … i = 9 の右上)。
+# 英字は大文字しか使わないので、小文字は空いている。図は横 2 倍
+# (text_put_wide) で貼る前提なので、斜めは 5 dot x 5 line に収め、縦長の
+# 画素でもおよそ 45 度に見えるようにしてある。
+ARROWS = {
+    'a': ("",          # 左下
+           "....#",
+           "#..#.",
+           "#.#..",
+           "##...",
+           "####.",
+           ""),
+    'b': ("..#..",     # 下
+           "..#..",
+           "..#..",
+           "..#..",
+           "#.#.#",
+           ".###.",
+           "..#.."),
+    'c': ("",          # 右下
+           "#....",
+           ".#..#",
+           "..#.#",
+           "...##",
+           ".####",
+           ""),
+    'd': ("",          # 左
+           "..#..",
+           ".#...",
+           "#####",
+           ".#...",
+           "..#..",
+           ""),
+    'f': ("",          # 右
+           "..#..",
+           "...#.",
+           "#####",
+           "...#.",
+           "..#..",
+           ""),
+    'g': ("",          # 左上
+           "####.",
+           "##...",
+           "#.#..",
+           "#..#.",
+           "....#",
+           ""),
+    'h': ("..#..",     # 上
+           ".###.",
+           "#.#.#",
+           "..#..",
+           "..#..",
+           "..#..",
+           "..#.."),
+    'i': ("",          # 右上
+           ".####",
+           "...##",
+           "..#.#",
+           ".#..#",
+           "#....",
+           ""),
+}
+GLYPHS.update(ARROWS)
+
 # 並び順 (= C 側の glyph_of() が返す番号)。ここを変えたら c_text.c も直す。
-ORDER = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.!"
+# 末尾の 8 字 (a-d、f-i) は矢印で、番号 41-48 になる。
+ORDER = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.!=abcdfghi"
 
 
 def rows_of(ch: str):
@@ -323,9 +401,19 @@ def main() -> None:
         print("usage: make_font.py <out.h>", file=sys.stderr)
         sys.exit(1)
 
+    if len(set(ORDER)) != len(ORDER):
+        print("make_font: ORDER に同じ字が 2 回ある", file=sys.stderr)
+        sys.exit(1)
     for ch in ORDER:
         if ch not in GLYPHS:
             print(f"make_font: 字形が無い: {ch!r}", file=sys.stderr)
+            sys.exit(1)
+    # 字形は 5 dot 幅 x 7 line に収まっていること (はみ出した行や列は黙って
+    # 落ちるか字間に食い込むので、ここで止める)
+    for ch, art in GLYPHS.items():
+        if len(art) > GLYPH_ROWS or any(len(line) > GLYPH_COLS for line in art):
+            print(f"make_font: 字形 {ch!r} が {GLYPH_COLS} dot x {GLYPH_ROWS} line "
+                  f"を超える", file=sys.stderr)
             sys.exit(1)
 
     lines = [
@@ -341,7 +429,12 @@ def main() -> None:
     ]
     for i, ch in enumerate(ORDER):
         vals = ", ".join(f"0x{v:02X}" for v in rows_of(ch))
-        name = "SPACE" if ch == ' ' else ch
+        if ch == ' ':
+            name = "SPACE"
+        elif ch in ARROWS:
+            name = f"ARROW {ord(ch) - ord('a') + 1}"
+        else:
+            name = ch
         lines.append(f"    {vals},   /* {i:2d} {name} */")
     lines.append("};")
     lines.append("")
