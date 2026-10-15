@@ -2,60 +2,33 @@
 * asm_input.s — ゲーム用 入力モジュール (IRQ 駆動)
 *
 * 【この機種のキーボードの制約 — 設計の前提】
-*   本機のキーボードは、 押されたキーの文字コードを $FD01 に流す方式である。
-*   公式マニュアル・公刊の解説書で確認できる範囲では、 「キーを離した」 事を
-*   知らせる通知 (ブレークコード) は BREAK キー以外には存在しない。
-*   つまり通常キーは 「押された瞬間」 しか取れず、 「今押されているか」 を
-*   正確に知る手段が無い。
+*   本機のキーボードは、 押されたキーのコードを $FD01 に流す方式である。
+*   通常のキーには 「離した」 事を知らせる通知が無く、 押された時 (とキー
+*   リピート) のコードしか届かないので、 「今押されているか」 を知る手段が
+*   無い。 BREAK キーだけは別で、 専用ステータス $FD04 bit1 に押下中ずっと
+*   出続ける (active-low) ので、 押されているかを直接読める。
 *
-*   そのため本モジュールは 2 段構えにする。
+*   そのため本モジュールは次の 2 本立てにする。
 *
-*   (A) 方向は 「状態保持型」 にする (= 主 API)
+*   (A) 方向は 「状態保持型」 にする
 *       テンキー 8/2/4/6 を押すと方向が確定し、 キーを離してもその方向を
-*       保持し続ける。 テンキー 5 で停止する。 離鍵通知が要らないので、
-*       この方式ならこの機種で確実に動く。
+*       保持し続ける。 テンキー 5 で停止する。 離鍵の通知が要らない。
 *
-*   (B) 生の押下ビットマップは 「直近に押された」 の意味に留める (= 補助 API)
-*       離鍵が取れない以上、 真の 「押しっぱなし」 は表現できない。
-*       押下イベントごとにビットを立て、 一定時間で自動的に落とす
-*       (= RAW_HOLD タイムアウト)。 これは保険であり、 移動の判定に
-*       使ってはならない。 移動には (A) の input_dir() を使うこと。
+*   (B) ショットは BREAK に割り当て、 周期タイマ IRQ でサンプリングして
+*       押下エッジを数え、 押下状態が続く間はオート連射を生成する。
 *
-*   BREAK キーだけは例外で、 専用ステータス $FD04 bit1 に押下中ずっと
-*   出続ける (active-low)。 よってショットは BREAK に割り当て、 周期タイマ
-*   IRQ でサンプリングして押下エッジを数える + オート連射を生成する。
-*
-* 【ジョイスティック】
-*   FM 音源ポート経由のジョイスティックは、 キーボードと違って **離した事が
-*   判る**ので、 素直な 「倒している間だけ動く」 入力になる。
-*   本モジュールとの繋ぎ方は 2 箇所だけである。
-*
-*   (1) 方向 — input_dir() で **ジョイスティックを優先**する
-*         スティックが倒れていればその方向、 中立ならキーの保持方向。
-*         キーだけで遊ぶ人は _joy_bits_var が常に 0 なので、 従来と
-*         1 ビットも変わらない挙動になる。
-*   (2) トリガ — BREAK のレベルに **論理和**して既存の状態機械へ流す
-*         チャタリング除去もオート連射も BREAK 用のものがそのまま効くので、
-*         ボタン押しっぱなしは BREAK 押しっぱなしと同じ連射になる。
-*         新しい状態変数を持たないので、 二重計上も起こり得ない。
-*
-*   スティックの標本化は JOY_DIV tick に 1 回に間引く (下の定数を参照)。
+*   キーコードの受信は input_edges() (受信したキーの種類のビット和) と
+*   esc_edges() (ESC の受信回数) で C 側へ渡す。 どちらもキーリピートの分を
+*   含む。 押し直しを見分けたい時は、 呼ぶ側がキーコードの一定フレームの
+*   途切れを見てから、 次の受信を新しい押下として扱う。
 *
 * 【なぜ BREAK を FIRQ にしないか】
-*   $FD04 bit1 はレベル出力なので、 FIRQ を許可すると押下中ずっと再発火し、
-*   メインループが餓死する (= 実際に起きた)。 よって FIRQ はマスクのまま、
-*   タイマ IRQ (約 2ms) の中でポーリングする。
+*   $FD04 bit1 はレベル出力で FIRQ の要因でもある。 FIRQ を許可すると押下中
+*   は FIRQ が発火し続けてメインループが進まなくなる。 よって FIRQ はマスク
+*   のまま、 タイマ IRQ (約 2ms) の中でポーリングする。
 *
-* C API (c_input.h):
-*   void          input_init(void)     起動時 1 回 (timer_init の後)。
-*   unsigned char input_dir(void)      保持中の移動方向ビット (IN_UP 等)。
-*   void          input_dir_clear(void) 方向を停止状態に戻す。
-*   unsigned char input_state(void)    生の 「直近押下」 ビットマップ。
-*   unsigned char input_edges(void)    前回呼出以降に押されたキーのビット和
-*                                      (読むとクリア)。
-*   unsigned char break_shots(void)    前回呼出以降のショット数 (読むとクリア)。
-*   unsigned char break_held(void)     BREAK 押下中なら 1。
-*
+* C API は c_input.h を参照。 _input_tick と _input_feed_key は IRQ ハンドラ
+* (asm_timer.s) が呼ぶ内部の入口である。
 * ============================================================
 
 IO_BREAK        equ     $FD04           * R: bit1 = BREAK (0 = 押下、 active-low)
@@ -66,91 +39,57 @@ IN_DOWN         equ     $02
 IN_LEFT         equ     $04
 IN_RIGHT        equ     $08
 IN_STOP         equ     $10
-IN_FIRE         equ     $20
-IN_PAUSE        equ     $40
 IN_START        equ     $80
 
 IN_VMASK        equ     $03             * 縦軸 (UP|DOWN)
 IN_HMASK        equ     $0C             * 横軸 (LEFT|RIGHT)
 IN_DIRMASK      equ     $0F             * 方向 4 ビット
 * 上の各マスクのビット反転 (= 「この軸だけ落とす」 and マスク)。
-* アセンブラの単項演算子に依存しないよう、 値を直接書く。
-IN_NVMASK       equ     $FC             * = ~IN_VMASK   (縦軸だけ落とす)
-IN_NHMASK       equ     $F3             * = ~IN_HMASK   (横軸だけ落とす)
-IN_NDMASK       equ     $F0             * = ~IN_DIRMASK (方向 4 ビットを全部落とす)
+* 単項演算子を使わず、 $FF からの引き算で作る。
+IN_NVMASK       equ     $FF-IN_VMASK    * 縦軸だけ落とす
+IN_NHMASK       equ     $FF-IN_HMASK    * 横軸だけ落とす
+IN_NDMASK       equ     $FF-IN_DIRMASK  * 方向 4 ビットを全部落とす
 
 * --- 調整用定数 ---
 * BRK_DEBOUNCE: BREAK の状態変化を確定させるのに必要な連続一致 tick 数。
-*   1 tick ≒ 2ms なので 3 tick ≒ 6ms。 機械接点のチャタリングは概ね
-*   数 ms 以内に収まるのでこれで吸収でき、 かつ理論上 80 回/秒 まで
-*   押下を数えられるので人間の連打 (速い人で 15 回/秒 程度) を制限しない。
+*   1 tick ≒ 2ms (2.035ms) なので 3 tick ≒ 6ms。 同じレベルが 3 tick 続いた
+*   時だけ状態を確定し、 接点のチャタリングを吸収する。
 BRK_DEBOUNCE    equ     3
 
-* AUTO_PERIOD: オート連射の周期 (tick 数)。 1 tick ≒ 2.035ms。
-*   30 tick ≒ 61ms ≒ 16.4 発/秒。 押しっぱなしでこのレートで撃つ。
+* AUTO_PERIOD: オート連射の周期 (tick 数)。
+*   30 tick ≒ 61ms ≒ 16.4 発/秒。 押下状態が続く間、 この周期で 1 発ずつ積む。
 *   人間の連打がこれを上回った場合は連打が優先される (下の合成規則を参照)。
 AUTO_PERIOD     equ     30
-
-* RAW_HOLD: 生押下ビットを立てておく時間 (減衰処理の呼出回数単位)。
-*   減衰は DECAY_DIV tick に 1 回なので、 8 * 8 tick ≒ 130ms。
-RAW_HOLD        equ     8
-DECAY_DIV       equ     8               * 何 tick に 1 回 減衰処理を回すか
-
-* JOY_DIV: ジョイスティックを読む間隔 (tick 数)。 1 tick ≒ 2.035ms なので
-*   8 tick ≒ 16.3ms ≒ 61 回/秒 = 画面と同じ回数。 #45 で 1 回の標本化に
-*   音源チップの BUSY 待ち (R15 の書込み + R14 の読出し、 約 300 cycle) が
-*   入ったため、 4 tick (123 回/秒) から 8 tick へ間引いた。 オート連射の
-*   周期 (30 tick ≒ 61ms) とチャタリング除去 (3 tick) に対して十分細かい。
-JOY_DIV         equ     8
-
-* トリガのビット (トリガ 1 / トリガ 2 のどちらでも拾う)。
-JOY_TRIGS       equ     $30             * トリガ 1 / トリガ 2 のどちらでも
+KEY_ESC         equ     $1B             * ESC のキーコード (esc_edges で数える)
 
                 section code
-
-* ジョイスティックの実装は本作では外してある。 参照先はファイル
-* 末尾のスタブ (_joy_init/_joy_read = 即 RTS、 _joy_bits_var = 常に 0)。
-* スティック対応を入れるときはこのスタブを実装へ置き換えること。
 
                 export  _input_init
                 export  _input_dir
                 export  _input_dir_clear
-                export  _input_state
                 export  _input_edges
                 export  _break_shots
                 export  _break_held
+                export  _esc_edges
                 export  _input_tick         * IRQ ハンドラ (asm_timer.s) が呼ぶ
                 export  _input_feed_key     * IRQ ハンドラ (asm_timer.s) が呼ぶ
 
 
 * ------------------------------------------------------------
-* void input_init(void) — 内部状態を初期化する (起動時 1 回、 timer_init の後)
+* void input_init(void) — 内部状態を初期化する (起動時 1 回)
 *   BREAK の初期レベルを今の実状態に合わせ、 起動直後に偽のショットが
-*   1 発入るのを防ぐ。
+*   1 発入るのを防ぐ。 初期化の間は IRQ をマスクする。
 * ------------------------------------------------------------
 _input_init:
                 pshs    cc
                 orcc    #$10            * IRQ マスク (初期化中に tick が入らないように)
                 clr     dir_state
-                clr     raw_state
                 clr     edge_state
                 clr     brk_shots
+                clr     esc_cnt
                 clr     brk_dbnc
-                clr     tick_div
-                clr     joy_div
                 lda     #AUTO_PERIOD
                 sta     brk_auto
-                ldy     #raw_tmr
-                ldb     #8
-.iz             clr     ,y+
-                decb
-                bne     .iz
-                * --- ジョイスティックの有無を判別する (Issue #23)。
-                *     IRQ を止めた今のうちに済ませる。 音源カードが無ければ
-                *     _joy_bits_var は 0 (= 中立) のまま据え置かれ、 以後
-                *     キー入力だけで従来どおり動く。 判別にはループが無いので、
-                *     刺さっていない環境でも待ち続けることは無い。
-                jsr     _joy_init
                 lda     IO_BREAK        * 今の BREAK レベルを初期状態にする
                 anda    #$02
                 beq     .ipressed       * 0 = 押されている (active-low)
@@ -166,23 +105,9 @@ _input_init:
 * unsigned char input_dir(void) — 移動方向ビットを返す
 *   bit0=上 bit1=下 bit2=左 bit3=右。 斜めは 2 ビット同時に立つ。
 *   1 バイト読みは 6809 の単一命令なので IRQ に割られない (マスク不要)。
-*
-*   【ジョイスティックが優先。 中立ならキーの保持方向 (Issue #23)】
-*   ジョイスティックは離した事が判るので 「倒している間だけ」 が素直に取れる。
-*   よってスティックが倒れていればそれをそのまま返し、 中立のときだけ
-*   キーの保持方向へ落ちる。
-*     ・ジョイスティックだけで遊ぶ人 … キーを触らないので dir_state は 0 の
-*       まま。 手を放せば止まる、 という普通のシューティングの操作になる。
-*     ・キーだけで遊ぶ人 … 音源カードが無ければ _joy_bits_var は常に 0 なので、
-*       この 3 命令を素通りして従来と完全に同じ値が返る。
-*   費用は ldb(5) + andb(2) + bne(3) = 10 cycle / 呼出。
 * ------------------------------------------------------------
 _input_dir:
-                ldb     _joy_bits_var   * スティックの状態 (アクティブ High)
-                andb    #IN_DIRMASK
-                bne     .idjoy          * 倒れている → そちらを使う
-                ldb     dir_state       * 中立 → キーの保持方向
-.idjoy
+                ldb     dir_state       * キーの保持方向
                 clra
                 rts
 
@@ -196,19 +121,9 @@ _input_dir_clear:
 
 
 * ------------------------------------------------------------
-* unsigned char input_state(void) — 生の 「直近押下」 ビットマップを返す
-*   ※ 離鍵が取れない機種なので、 これは 「押しっぱなし」 ではなく
-*     「ごく最近押された」 の意味。 移動判定に使わないこと。
-* ------------------------------------------------------------
-_input_state:
-                ldb     raw_state
-                clra
-                rts
-
-
-* ------------------------------------------------------------
-* unsigned char input_edges(void) — 前回呼出以降に押されたキーのビット和
-*   読み出しと同時にクリアする (取りこぼしの無いエッジ検出)。
+* unsigned char input_edges(void) — 前回呼出以降に受信したキーの種類のビット和
+*   同じキーを何度受信しても 1 ビットなので、 回数と順序は分からない
+*   (キーリピートの分も含む)。 読み出しと同時にクリアする。
 *   read + clear を atomic にするため IRQ を一瞬マスクする。
 * ------------------------------------------------------------
 _input_edges:
@@ -237,6 +152,24 @@ _break_shots:
 
 
 * ------------------------------------------------------------
+* unsigned char esc_edges(void) — 前回呼出以降に ESC のキーコードが来た回数
+*   ESC は回数を保持するためのカウンタ (esc_cnt) で数える
+*   (input_feed_key の頭で拾う)。 キーリピートの分も
+*   1 回ずつ数える。 呼ぶ側はキーコードが一定フレーム途切れた後の受信を
+*   新しい押下として扱う。 255 で飽和する。
+*   read + clear は break_shots と同じく IRQ を一瞬マスクして行う。
+* ------------------------------------------------------------
+_esc_edges:
+                pshs    cc
+                orcc    #$10
+                ldb     esc_cnt
+                clr     esc_cnt
+                puls    cc
+                clra
+                rts
+
+
+* ------------------------------------------------------------
 * unsigned char break_held(void) — BREAK 押下中なら 1 (チャタリング除去済)
 * ------------------------------------------------------------
 _break_held:
@@ -248,41 +181,23 @@ _break_held:
 * ------------------------------------------------------------
 * void input_tick(void) — 周期タイマ IRQ (約 2ms) から呼ばれる
 *
-*   1. BREAK をサンプリングし、 チャタリング除去 → 押下エッジを数える
-*      → 押しっぱなしならオート連射を積む
-*   2. DECAY_DIV tick に 1 回、 生押下ビットのタイムアウト減衰を行う
+*   BREAK をサンプリングし、 チャタリング除去 → 押下エッジを数える
+*   → 押下状態が続く間はオート連射を積む。
 *
 *   【人間の連打とオート連射の合成】
-*     押下エッジが立った瞬間に「1 発足す」 と同時に brk_auto を
+*     押下エッジが立った瞬間に 「1 発足す」 と同時に brk_auto を
 *     AUTO_PERIOD へ 「巻き戻す」。 よって
 *       ・連打が AUTO_PERIOD より速い → オートが満了する前に毎回巻き戻る
 *         ので、 オートは 1 発も撃たず 「連打の回数そのもの」 が出る (連打優先)。
-*       ・押しっぱなし / 連打が遅い → オートが満了して AUTO_PERIOD ごとに
-*         1 発ずつ積まれる (下限が保証される)。
+*       ・押しっぱなし → オートが満了して AUTO_PERIOD ごとに 1 発ずつ
+*         積まれる (押下状態が続いている間だけ。 離した確定で止まる)。
 *     二重計上は起きない。
 * ------------------------------------------------------------
 _input_tick:
-                * --- ジョイスティックを JOY_DIV tick に 1 回だけ読む (#23) ---
-                *     音源カードが無ければ _joy_read は入口で返るだけで、
-                *     _joy_bits_var は 0 (= 中立) のまま動かない。
-                inc     joy_div
-                lda     joy_div
-                cmpa    #JOY_DIV
-                blo     .jskip
-                clr     joy_div
-                jsr     _joy_read
-.jskip
                 * --- 発射のレベルを読む (A = 0:離 / 1:押) ---
-                *     BREAK キー **または** ジョイスティックのトリガ。
-                *     ここで 1 本にまとめてしまえば、 以降のチャタリング除去・
-                *     押下エッジ・オート連射は BREAK 用の物がそのまま効く。
-                *     状態変数を増やさないので二重計上も起こり得ない。
                 lda     IO_BREAK
                 anda    #$02
                 beq     .braw1          * 0 = BREAK 押下 (active-low)
-                lda     _joy_bits_var   * BREAK は離れている → トリガを見る
-                anda    #JOY_TRIGS
-                bne     .braw1          * トリガ 1 / 2 のどちらかが押されている
                 clra
                 bra     .bcmp
 .braw1          lda     #1
@@ -299,42 +214,19 @@ _input_tick:
                 clr     brk_dbnc
                 sta     brk_state       * 新しい状態を確定
                 tsta
-                beq     .bdecay         * 離した確定 → 何も撃たない
+                beq     .tdone          * 離した確定 → 何も撃たない
                 bsr     .addshot        * 押した確定 = 立ち上がりエッジ → 1 発
                 lda     #AUTO_PERIOD
                 sta     brk_auto        * オート連射の位相を巻き戻す
-                bra     .bdecay
+                bra     .tdone
 .bauto
                 lda     brk_state
-                beq     .bdecay         * 離しているならオート連射しない
+                beq     .tdone          * 離しているならオート連射しない
                 dec     brk_auto
-                bne     .bdecay
+                bne     .tdone
                 bsr     .addshot        * オート連射 1 発
                 lda     #AUTO_PERIOD
                 sta     brk_auto
-
-                * --- 生押下ビットの減衰 (DECAY_DIV tick に 1 回) ---
-.bdecay
-                inc     tick_div
-                lda     tick_div
-                cmpa    #DECAY_DIV
-                blo     .tdone
-                clr     tick_div
-                ldy     #raw_tmr
-                ldb     #$01            * B = 対象ビットのマスク
-.dl             lda     ,y
-                beq     .dnext          * 既に 0 → そのビットは落ちている
-                deca
-                sta     ,y
-                bne     .dnext
-                pshs    b               * 0 になった → raw_state の該当ビットを落とす
-                comb
-                andb    raw_state
-                stb     raw_state
-                puls    b
-.dnext          leay    1,y
-                lslb                    * 次のビットへ (8 回で 0 になり抜ける)
-                bne     .dl
 .tdone
                 rts
 
@@ -352,8 +244,8 @@ _input_tick:
 * ------------------------------------------------------------
 * void input_feed_key(void) — B = 受信したキーコード。 IRQ ハンドラが呼ぶ
 *
-*   keytab を引いて、 方向の保持状態 (dir_state) と 生押下ビット
-*   (raw_state / edge_state) を更新する。
+*   keytab を引いて、 方向の保持状態 (dir_state) と 受信ビット (edge_state)
+*   を更新する。
 *
 *   方向の更新は 「軸ごとの置き換え」 で行う:
 *     dir_state = (dir_state & andmask) | ormask
@@ -363,6 +255,15 @@ _input_tick:
 *   勝つ」 (相殺して停止にはしない)。
 * ------------------------------------------------------------
 _input_feed_key:
+                cmpb    #KEY_ESC        * ESC は keytab を引かずに数えるだけ
+                bne     .fnesc
+                lda     esc_cnt
+                cmpa    #$FF            * 255 で飽和
+                beq     .fdone
+                inca
+                sta     esc_cnt
+                rts
+.fnesc
                 stb     feed_code
                 ldx     #keytab
 .fl             lda     ,x
@@ -376,30 +277,17 @@ _input_feed_key:
                 anda    1,x             * 対象の軸をクリア
                 ora     2,x             * 新しい方向を立てる
                 sta     dir_state
-                lda     3,x             * 生押下ビット
-                sta     feed_raw
-                ora     raw_state
-                sta     raw_state
-                lda     feed_raw
+                lda     3,x             * 受信ビット
                 ora     edge_state
                 sta     edge_state
-                * 立てたビットの recency タイマを満充填する
-                ldy     #raw_tmr
-                ldb     #8
-.rt1            lsr     feed_raw
-                bcc     .rt2
-                lda     #RAW_HOLD
-                sta     ,y
-.rt2            leay    1,y
-                decb
-                bne     .rt1
 .fdone
                 rts
 
 
 * ------------------------------------------------------------
 * キーコード変換テーブル
-*   1 エントリ 4 byte: [キーコード, dir の and マスク, dir の or マスク, 生押下ビット]
+*   1 エントリ 4 byte: [キーコード, dir の and マスク, dir の or マスク,
+*                      input_edges() に立てるビット]
 *   キーコード 0 で終端。
 *
 *   この機種のキーボードは押されたキーの文字コードを返すので、
@@ -425,34 +313,17 @@ keytab
                 fcb     $1D,IN_NHMASK,IN_LEFT,IN_LEFT           * カーソル 左
                 fcb     $1C,IN_NHMASK,IN_RIGHT,IN_RIGHT         * カーソル 右
                 * --- 方向以外 (dir は変えない = and $FF / or $00) ---
-                fcb     $20,$FF,$00,IN_FIRE                     * SPACE 発射 (予備)
-                fcb     $70,$FF,$00,IN_PAUSE                    * 'p' ポーズ
-                fcb     $50,$FF,$00,IN_PAUSE                    * 'P' ポーズ
                 fcb     $0D,$FF,$00,IN_START                    * RETURN 開始/決定
                 fcb     $00,$00,$00,$00                         * 終端
 
-
-* ---- ジョイスティック無し構成のスタブ ----------------------------
-* _joy_bits_var は常に 0 (= 中立) なので、 input_dir / _input_tick の
-* スティック優先経路は 1 ビットも効かず、 キーボードの保持方向がそのまま
-* 出る。 code セクションの fcb 0 なので起動時から確実に 0 である。
-_joy_init:
-_joy_read:
-                rts
-_joy_bits_var   fcb     0
-
                 section bss
 dir_state       rmb     1               * 保持中の移動方向 (IN_UP/DOWN/LEFT/RIGHT)
-raw_state       rmb     1               * 生の 「直近押下」 ビットマップ
-edge_state      rmb     1               * 前回 input_edges() 以降の押下ビット和
+edge_state      rmb     1               * 前回 input_edges() 以降の受信ビット和
 feed_code       rmb     1               * _input_feed_key の作業用 (受信コード)
-feed_raw        rmb     1               * _input_feed_key の作業用 (ビット走査)
-raw_tmr         rmb     8               * 生押下ビットごとの残り時間 (bit0 が先頭)
-tick_div        rmb     1               * 減衰処理の分周カウンタ
-joy_div         rmb     1               * ジョイスティック標本化の分周カウンタ
 brk_state       rmb     1               * BREAK の確定状態 (0 = 離 / 1 = 押)
 brk_dbnc        rmb     1               * BREAK チャタリング除去の連続一致数
 brk_auto        rmb     1               * オート連射までの残り tick
 brk_shots       rmb     1               * 未回収のショット数 (255 で飽和)
+esc_cnt         rmb     1               * 未回収の ESC の回数 (255 で飽和)
 
                 end
