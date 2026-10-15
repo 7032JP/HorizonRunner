@@ -1,150 +1,56 @@
 ;
 ; ============================================================================
-; FM-7 multi-load LOADM trampoline (6809 ASM, lwasm syntax)
+; FM-7 LOADM 用ステージャ (6809、lwasm の文法)
 ;
-; Companion source for d77_to_t77_chunks.py. **One** template serves every
-; pass; what a pass actually does is decided entirely by a move table that
-; the Python side appends after Stage 2. There is no per-shape variant to
-; pick and no hand-maintained table of cases: the planner computes the moves
-; from the binary size and emits them.
+; d77_to_t77_chunks.py と対になるソース。テープには本体の全部を機械語
+; ファイル 1 本として載せ、並びは
 ;
-; Assembled with `lwasm --raw`, which does not pad across an `org` jump, so
-; the output file is exactly:
+;     [ 本体 (ORG を基準にした像、N byte) ][ このステージャ ]
 ;
-;     [ Stage 1     : 26 B, assembled at $1400 ]
-;     [ return stub :  6 B, assembled at $141A ]
-;     [ Stage 2     :       assembled at $D000 ]
+; で、STAGER_LOAD ($1400) から連続して読み込まれる。BASIC ローダーが実行
+; する LOADM "CAS0:",,R が、本体の直後にあるステージャへ飛ぶ。ステージャは
 ;
-; and the Python side appends the move table right after Stage 2. The whole
-; thing is loaded contiguously from $1400 by LOADM.
+;   1. IRQ/FIRQ をマスクし (BASIC の IRQ ハンドラは、これから外す ROM の
+;      オーバレイの中にある)、
+;   2. ROM のオーバレイを外し ($FD0F へ書く。$8000-$FBFF がただの RAM に
+;      なる。本作はこの状態で動く)、
+;   3. 本体を $1400 からエントリアドレスへ前方コピーし、
+;   4. スタックを張ってエントリへ飛ぶ。
 ;
-; Memory layout (assumed by every pass):
-;   CLEAR ,&H13FF leaves $1400-$7FFF free; we use $1400-$5FFF.
-;     $1400-$1419   Stage 1                       (always 26 B)
-;     $141A-$141F   return stub                   (always  6 B; runs in place)
-;     $1420-....    Stage 2 source + move table   (copied to $D000)
-;     ....-$1FFF    zero padding
-;     $2000-$5FFF   LOADM buffer                  (16 KiB; the chunk lands here)
+; 本体とステージャは $1400-$7FFF に収まっていなければならない (Python 側が
+; 検査する)。
 ;
-; Stage 1 masks IRQ/FIRQ, switches the ROM overlay OFF (so $8000-$FBFF is
-; plain RAM), copies Stage 2 **and the move table** up to $D000 — which is
-; URA RAM and therefore survives the next pass overwriting $1400-$5FFF —
-; and jumps into it.
+; ステージャは $1400 + N の場所でそのまま動く。コピー先はコピー元より低い
+; アドレスなので、コピー先の範囲はステージャより下で終わり、動いている
+; コードが書き潰されることは無い。自分自身への絶対参照は持たず (相対分岐
+; だけ)、固定の origin は要らない。下の `org 0` は形だけ。
 ;
-; Stage 2 walks the move table and executes it. Each entry is:
+; Python 側が埋めるオペランド (ビッグエンディアン。出現回数は次のとおり):
+;     $DEAD  (1 回)  転送元の終端 = STAGER_LOAD + N
+;     $BEEF  (2 回)  エントリアドレス (LDY #entry / JMP entry)
 ;
-;     $00 src(2) dst(2) limit(2)   forward copy; limit = source end (exclusive)
-;     $01 src(2) dst(2) limit(2)   reverse copy; src/dst are the *ends*,
-;                                  limit = source start
-;     $FE entry(2)                 done: LDS #$FBFF, JMP entry   (final pass)
-;     $FF                          done: jump to the return stub (intermediate)
-;
-; All 16-bit fields are big-endian (= what LDX ,U++ reads).
-;
-; The one sentinel the Python side patches is Stage 1's CMPX operand
-; ($DEAD), which must end up as "$1420 + len(Stage 2) + len(move table)".
-; Stage 2's own address ($D000) and the table's address ($D000 + len(Stage 2))
-; are fixed at assembly time, so nothing else needs patching.
-;
-; Derived from the trampoline scheme of D77TOT77WAV (MIT). See
-; D77TOT77WAV.LICENSE.txt.
+; D77TOT77WAV (MIT) のトランポリンの方式を元にした。
+; D77TOT77WAV.LICENSE.txt を参照。
 ; ============================================================================
 
-STAGER_LOAD     equ     $1400
-RETSTUB         equ     $141A           ; STAGER_LOAD + 26 (= Stage 1 size)
-STAGE2_SRC_BASE equ     $1420           ; RETSTUB + 6 (= 復帰小片の大きさ)
-STAGE2          equ     $D000
-ENTRY_STACK     equ     $FBFF
+STAGER_LOAD     equ     $1400           ; LOADM がブロックを置く場所
+ENTRY_STACK     equ     $FBFF           ; 本体へ飛ぶ時のスタック
 ROM_PORT        equ     $FD0F
 
-KIND_FWD        equ     $00
-KIND_REV        equ     $01
-KIND_JMP        equ     $FE
-KIND_RTS        equ     $FF
+PLACEHOLDER_END   equ   $DEAD           ; <- 埋める: 転送元の終端
+PLACEHOLDER_ENTRY equ   $BEEF           ; <- 埋める: エントリアドレス
 
-PLACEHOLDER_END equ     $DEAD           ; <- patched: end of the copied source
-
-
-; ---------------------------------------------------------------------------
-; Stage 1 — runs at $1400 straight out of LOADM (auto-exec or EXEC &H1400).
-; Exactly 26 bytes; STAGE2_SRC_BASE above depends on that.
-; ---------------------------------------------------------------------------
-                org     STAGER_LOAD
-s1              orcc    #$50                    ; mask FIRQ/IRQ (the BASIC IRQ
-                                                ;   handler lives in the ROM
-                                                ;   overlay we are about to hide)
+                org     0
+stager          orcc    #$50                    ; FIRQ/IRQ をマスク
                 lda     #$00
-                sta     ROM_PORT                ; write -> overlay OFF
-                ldx     #STAGE2_SRC_BASE
-                ldy     #STAGE2
+                sta     ROM_PORT                ; 書くとオーバレイが外れる
+                ldx     #STAGER_LOAD            ; 転送元 = 読み込まれた本体
+                ldy     #PLACEHOLDER_ENTRY      ; 転送先 = エントリ
 .l              lda     ,x+
                 sta     ,y+
-                cmpx    #PLACEHOLDER_END        ; <- patched by the Python side
+                cmpx    #PLACEHOLDER_END        ; <- Python 側が埋める
                 bne     .l
-                jmp     STAGE2
-s1_end
-
-
-; ---------------------------------------------------------------------------
-; Return stub — runs at $141A, i.e. in **low RAM**, and only on intermediate
-; passes.
-;
-; This must not live with Stage 2. Stage 2 runs at $D000, which is *under*
-; the ROM overlay: the instant the overlay comes back on, the next opcode is
-; fetched from the ROM instead of from our copy, and the machine wanders off
-; into the middle of BASIC. (The symptom is that `EXEC &H1400` never comes
-; back to the `Ready` prompt — the load appears to hang after the first
-; pass.) Low RAM is never overlaid, so switching the overlay back on here is
-; safe.
-;
-; Nothing overwrites $141A before this runs: an intermediate pass only ever
-; writes to chunk finals at $6000 and above and to the URA RAM stashes, and
-; the final pass — which does write over $1400-$5FFF — ends with JMP instead
-; of coming here. `simulate_plan` checks that for every pass.
-; ---------------------------------------------------------------------------
-                org     RETSTUB
-retstub         lda     ROM_PORT                ; read -> overlay ON
-                andcc   #$AF                    ; unmask FIRQ/IRQ
-                rts                             ; -> back to F-BASIC
-retstub_end
-
-
-; ---------------------------------------------------------------------------
-; Stage 2 — runs at $D000 (URA RAM). Interprets the move table.
-; ---------------------------------------------------------------------------
-                org     STAGE2
-s2              ldu     #tbl
-.next           ldb     ,u+                     ; kind
-                cmpb    #KIND_JMP
-                bhs     .fin                    ; $FE / $FF = terminator
-                stb     kind
-                ldx     ,u++                    ; source
-                ldy     ,u++                    ; destination
-                ldd     ,u++                    ; limit
-                std     limit
-                tst     kind
-                bne     .rev
-.fwd            lda     ,x+
-                sta     ,y+
-                cmpx    limit
-                bne     .fwd
-                bra     .next
-.rev            lda     ,-x
-                sta     ,-y
-                cmpx    limit
-                bne     .rev
-                bra     .next
-
-.fin            cmpb    #KIND_RTS
-                bne     .jmpentry
-                jmp     RETSTUB                 ; 低位 RAM でオーバレイを戻す
-.jmpentry       ldx     ,u++                    ; entry address
                 lds     #ENTRY_STACK
-                jmp     ,x                      ; -> the game, ROM still OFF
-
-kind            fcb     0                       ; scratch (RAM at $D000+)
-limit           fdb     0                       ; scratch
-tbl                                             ; move table is appended here
-s2_end
+                jmp     PLACEHOLDER_ENTRY       ; -> 本体へ。ROM は外れたまま
 
                 end
