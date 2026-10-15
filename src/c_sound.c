@@ -4,10 +4,15 @@
  *   A: シンセベース。常に残し、曲の重心にする。
  *   B: シンセドラム。キックは矩形波の降下、スネアとハイハットは PSG
  *      ノイズの短い減衰で作る。
- *   C: 薄い和音。発射音と破壊音の間だけ効果音へ貸す。
+ *   C: 薄い持続音。発射音と破壊音の間だけ効果音へ貸す。
  *
  * 1 step は 8 分音符、8 step で 1 小節。実行時の音程計算は行わず、
  * period と音量の表を引くだけにする。
+ *
+ * 鳴らすのはステージの中だけ。sound_stop() は起動時 (sound_init)、
+ * タイトル画面からプレイを開始する時 (曲を先頭へ戻す)、ゲームオーバーの
+ * 画面に入る時に呼び、タイトル画面とゲームオーバーの画面では
+ * sound_tick() を呼ばない。
  * ============================================================ */
 
 #include "c_sound.h"
@@ -16,7 +21,7 @@
 #define PSG_CTRL (*(volatile unsigned char *)0xFD0D)
 #define PSG_BUS  (*(volatile unsigned char *)0xFD0E)
 
-/* R7。A/C は tone、B は drum_mode() が tone/noise を切り替える。
+/* R7。A/C は tone、B は drum_start() が tone/noise を切り替える。
  * bit7 は出力のまま保つ。 */
 #define MIX_KICK   0xB8
 #define MIX_NOISE  0xAA
@@ -25,7 +30,6 @@
 #define SONG_LEN    32       /* 4 小節 */
 
 #define REST 0
-#define C2 1175
 #define D2 1047
 #define E2  932
 #define F2  880
@@ -46,7 +50,7 @@
 #define A5   87
 #define C6   73
 
-/* イ短調。根音と 5 度を交互に刻むシンセベースが主役。 */
+/* イ短調。根音、そのオクターブ上、5 度を組み合わせて刻むシンセベースが主役。 */
 static const unsigned int bass[SONG_LEN] = {
     A2,A3,A2,E3, A2,A3,G2,E3,
     F2,F3,F2,C3, G2,G3,G2,D3,
@@ -62,7 +66,7 @@ static const unsigned int pad[SONG_LEN] = {
     A4,REST,F3,REST, G4,REST,E4,REST
 };
 
-/* 0=キック、1=ハイハット、2=スネア、3=ハイハット。これを 2 回で 1 小節。 */
+/* 音種は 0=キック、1=ハイハット、2=スネア。4 step の並びを 2 回で 1 小節。 */
 static const unsigned char drum[8] = { 0,1,2,1, 0,1,2,1 };
 
 /* 残りフレームを添字として後ろから読む。 */
@@ -74,7 +78,7 @@ static const unsigned char hat_v[2] = { 0,7 };
 static const unsigned int shot_p[3] = { E5,A5,C6 };
 static const unsigned int boom_p[6] = { C5,A4,G4,E4,C4,980 };
 
-unsigned char sound_step;
+static unsigned char sound_step;    /* 現在の 8 分音符位置 */
 static unsigned char step_timer;
 static unsigned char drum_kind;
 static unsigned char drum_left;
@@ -136,7 +140,9 @@ static void music_apply(void)
     drum_start(drum[sound_step & 7]);
 }
 
-void sound_init(void)
+/* 3 声とも黙らせ、曲を先頭へ戻す。鳴りかけのドラムと効果音も捨てる。
+ * 次に sound_tick() を呼んだ時に 1 拍目から鳴り始める。 */
+void sound_stop(void)
 {
     psg_write(8, 0); psg_write(9, 0); psg_write(10, 0);
     psg_write(7, MIX_KICK);
@@ -144,6 +150,11 @@ void sound_init(void)
     step_timer = 0;
     drum_kind = 0; drum_left = 0;
     se_kind = 0; se_step = 0; se_timer = 0;
+}
+
+void sound_init(void)
+{
+    sound_stop();
 }
 
 void sound_tick(void)

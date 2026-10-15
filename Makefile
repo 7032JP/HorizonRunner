@@ -2,14 +2,18 @@
 # HorizonRunner — FM-7 用 Makefile (CMOC + LWASM/LWLINK)
 #
 # プロジェクト名と本体開始アドレス、サブ CPU 側メモリマップは
-# config.mk に集約。このファイルは触らなくて済むのが理想。
+# config.mk に集約。
 #
-# 先行プロジェクトのビルド基盤から移植。font/sprite の画像パイプライン
-# (TTF ダウンロード + Pillow) は本作では持たない (= ネットワーク
-# アクセスに依存する処理を既定ビルドに残さない)。
+# font/sprite/敵/ステージの表は scripts/ の Python が焼く。標準ライブラリ
+# だけで動き、ネットワークアクセスや外部パッケージには依存しない。
 # =============================================================
 
 include config.mk
+
+# ORG はページ境界 (下位 8 bit が 0) に揃える (asm_ipl.s が前提にする)。
+ifneq ($(filter-out %00,$(ORG)),)
+$(error ORG=$(ORG) はページ境界 (下位 8 bit が 0) ではない)
+endif
 
 CMOC      = cmoc
 LWASM     = lwasm
@@ -32,43 +36,45 @@ T77_TRAMP_SRC = $(SCRIPTS)/trampoline.asm
 T77_TRAMP    = $(BUILD)/trampoline.bin
 BOOTROM      = $(BUILD)/bootrom.bin      # 自前ブート ROM (別ターゲット)
 LINK_SCRIPT  = $(BUILD)/link.script      # config.mk の ORG から自動生成
-LINK_MAP     = $(BUILD)/$(NAME).map      # リンクマップ (検証治具が番地を引く)
+LINK_MAP     = $(BUILD)/$(NAME).map      # リンクの結果 (各セクションとシンボルの配置)
 
 C_SRCS       = $(SRC)/c_main.c $(SRC)/c_subsys.c $(SRC)/c_subprog.c \
                $(SRC)/c_sound.c $(SRC)/c_text.c
-ASM_SRCS     = $(SRC)/asm_crt0.s $(SRC)/asm_subsys.s $(SRC)/asm_runtime.s \
+ASM_SRCS     = $(SRC)/asm_crt0.s $(SRC)/asm_subsys.s \
                $(SRC)/asm_test.s $(SRC)/asm_kbd.s $(SRC)/asm_timer.s \
                $(SRC)/asm_input.s
 
 # ---- sub プログラム (= SUB_PROG_ADDR で動くサブ CPU 独自コード) ----
-# org $C400 で raw bin にアセンブル → bin2asm.py で _subprog_bin[] と
+# org $C100 で raw bin にアセンブル → bin2asm.py で _subprog_bin[] と
 # _subprog_len を持つ rodata に変換 → main 本体にリンク埋め込み。
 # main 起動時に sub_takeover でサブへ転送し、sub_call で実行する。
 SUBPROG_SRC     = $(SRC)/asm_subprog.s
-# 自機の絵 (= ASCII アートから 8 位相ぶんの事前シフト済み
+# 自機と敵などの絵と寸法表 (= ASCII アートから位相ごとの事前シフト済み
 # ビットマップを焼く)。生成物なので build/ に置き、asm_subprog.s が
-# include する。絵を直す時は scripts/make_sprite.py の ART を直す。
+# include する。絵を直す時は scripts/make_sprite.py の PLAYER / *_ART を直す。
 SPRITE_TOOL     = $(SCRIPTS)/make_sprite.py
 SPRITE_DATA     = $(BUILD)/sprite_data.s
 SPRITE_HDR      = $(BUILD)/sprite_geo.h
-# 爆発の絵 (= サブ側のコード枠に入り切らないので、main が起動時に VRAM の
-# 末尾へ WRITE コマンドで送らせる。中身と番地はこのヘッダに焼かれる)
+# VRAM の末尾に置く絵 (爆発・敵弾・近距離の敵 B。サブ側のコードの領域に入り
+# 切らないので、main が起動時に VRAM の末尾へ WRITE コマンドで送らせる。
+# 中身とアドレスはこのヘッダに焼かれる)
 EXPL_HDR        = $(BUILD)/expl_data.h
-# 床の模様表と遠近表 (= 割り算をビルド時に済ませて実行時から追い出し、
-# 模様の番号付けを asm と C で 1 箇所に閉じ込める)
 # 敵の軌道表 (= 透視投影の割り算をビルド時に済ませる)
 ENEMY_TOOL      = $(SCRIPTS)/make_enemy.py
 ENEMY_HDR       = $(BUILD)/enemy_path.h
 # 地上物 (低木 / 木) の軌道表 (= 床と同じ速度で迫るための滞在フレーム表)
 GROUND_TOOL     = $(SCRIPTS)/make_ground.py
 GROUND_HDR      = $(BUILD)/ground_path.h
-# 1 面のスクリプト (= 何をいつ出すか。秒で書いた一覧をフレーム間隔の表に落とす)
+# 1 ステージのスクリプト (= 何をいつ出すか。秒で書いた一覧をフレーム間隔の表に落とす)
 STAGE_TOOL      = $(SCRIPTS)/make_stage.py
 STAGE_HDR       = $(BUILD)/stage_script.h
-# 8x8 の自前フォント (= タイトル / 得点 / 残機 / 幕。サブ側にはフォントを
-# 置く余地が無いので、字形はメイン側に持ち WRITE コマンドでサブに書かせる)
+# 8x8 の自前フォント (= タイトル / 得点 / 残機 / ステージクリアとゲームオーバー
+# の表示。サブ側にはフォントを置く余地が無いので、字形はメイン側に持ち
+# WRITE コマンドでサブに書かせる)
 FONT_TOOL       = $(SCRIPTS)/make_font.py
 FONT_HDR        = $(BUILD)/font.h
+# 床の模様表と遠近表 (= 割り算をビルド時に済ませて実行時から追い出し、
+# 模様の番号付けを asm と C で 1 箇所に閉じ込める)
 FLOOR_TOOL      = $(SCRIPTS)/make_floor.py
 FLOOR_DATA      = $(BUILD)/floor_data.s
 FLOOR_HDR       = $(BUILD)/floor_table.h
@@ -89,7 +95,7 @@ DIST_FILES   = $(DIST)/$(NAME).d77 $(DIST)/$(NAME).t77 \
 
 # デフォルトターゲット: D77 + 自前ブート ROM + T77 / WAV、
 # さらに配布イメージ一式を disks/ へコピーする。
-# レイアウト機械検査 (scripts/check_layout.py) は本体ビルドの途中で必ず通る。
+# レイアウト機械検査 (scripts/check_layout.py) は subprog.bin を組み立てるたびに通る。
 all: $(D77) $(BOOTROM) $(T77) $(WAV) dist
 
 hfe: $(HFE) $(HFE2DD)
@@ -119,9 +125,9 @@ $(DIST)/$(NAME).cmt.txt: $(CMTPROC)
 
 help:
 	@echo "make            : 本体 + D77 + ブート ROM + T77/WAV + disks/ へ配布物コピー"
-	@echo "make hfe        : HFE 2 種 (実機フロッピーエミュレータ機器用)"
+	@echo "make hfe        : HFE 2 種 (フロッピーの代替機器用)"
 	@echo "make t77        : テープイメージ + WAV + 操作手順テキスト"
-	@echo "make disk       : ディスク用ぜんぶ (D77 + HFE 2 種 + ブート ROM)"
+	@echo "make disk       : ディスク用の全部 (D77 + HFE 2 種 + ブート ROM)"
 	@echo "make dist       : 配布物 (D77/T77/WAV/手順 TXT) を disks/ へコピー"
 	@echo "make release    : 全部作る"
 	@echo "make bin        : 本体 BIN だけ"
@@ -160,10 +166,9 @@ $(LINK_SCRIPT): config.mk Makefile | build
 	@printf 'section code   load %s\nsection rodata\nsection initgl_start\nsection initgl\nsection initgl_end\nsection start\nsection program_end\nsection rwdata\nsection bss\n' '$(ORG)' > $@
 
 # リンクして本体 BIN
-#   --map も必ず同時に出す。変数の番地はビルドのたびに動くので、検証時は
-#   番地を直書きせずこのマップから引くこと。
-$(BIN): $(OBJS) $(LINK_SCRIPT)
-	$(LWLINK) --raw --script=$(LINK_SCRIPT) --map=$(LINK_MAP) --output=$@ $(OBJS)
+#   --map も同時に出す (各セクションとシンボルの配置の確認用)。
+$(BIN) $(LINK_MAP) &: $(OBJS) $(LINK_SCRIPT)
+	$(LWLINK) --raw --script=$(LINK_SCRIPT) --map=$(LINK_MAP) --output=$(BIN) $(OBJS)
 
 # IPL は単独で raw アセンブル (BODY_LOAD = config.mk の ORG を -D で渡す)
 $(IPL): $(SRC)/asm_ipl.s config.mk | build
@@ -201,12 +206,12 @@ $(SUBPROG_DATA): $(SUBPROG_BIN) $(SCRIPTS)/bin2asm.py
 	python3 $(SCRIPTS)/bin2asm.py $(SUBPROG_BIN) $@ subprog
 
 # 自前ブート ROM ($FE00-$FFFF, 512 byte)
-$(BOOTROM): $(SRC)/asm_bootrom.s | build
+$(BOOTROM): $(SRC)/asm_bootrom.s $(SCRIPTS)/pad_bootrom.py | build
 	$(LWASM) --raw -o $@.raw $<
 	python3 $(SCRIPTS)/pad_bootrom.py $@.raw $@
 
 # D77 は IPL と本体 BIN を結合
-$(D77): $(IPL) $(BIN)
+$(D77): $(IPL) $(BIN) $(SCRIPTS)/bin2d77.py
 	python3 $(SCRIPTS)/bin2d77.py \
 	    --ipl $(IPL) \
 	    --body $(BIN) \
@@ -221,27 +226,20 @@ $(HFE): $(D77) $(SCRIPTS)/d77_to_hfe.py
 $(HFE2DD): $(D77) $(SCRIPTS)/d77_to_hfe.py
 	python3 $(SCRIPTS)/d77_to_hfe.py $(D77) --mode 2dd -o $@
 
-# ---- T77 / WAV (CMT カセットテープ、要る時だけ) ----
-t77: $(T77)
+# ---- T77 / WAV (CMT カセットテープ。既定の all でも作る) ----
+t77: $(T77) $(WAV) $(CMTPROC)
 
 wav: $(WAV)
 
 $(T77_TRAMP): $(T77_TRAMP_SRC) | build
 	$(LWASM) --raw -o $@ $<
 
-$(T77): $(D77) $(T77TOOL) $(T77_TRAMP)
+# T77 / WAV / 操作手順テキストは 1 回の変換でまとめてできる (グループ化ターゲット)
+$(T77) $(WAV) $(CMTPROC) &: $(D77) $(T77TOOL) $(T77_TRAMP)
 	python3 $(T77TOOL) $(D77) --addr $(ORG) --tramp $(T77_TRAMP) \
 	    -o $(T77) -w $(WAV) -t $(CMTPROC)
 
-$(WAV): $(T77)
-	@:
-
-$(CMTPROC): $(T77)
-	@:
-
-# build/ の rm は WSL+Windows FS で permission denied が起きることが
-# あるので `-` で続行可能にしておく (= 本質エラーではない)。
 clean:
-	-rm -rf build
+	rm -rf build
 
 distclean: clean

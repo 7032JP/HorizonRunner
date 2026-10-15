@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 740 480" width="740">
+  <rect x="0" y="0" width="740" height="480" fill="#ffffff"/>
+  <!-- メイン側 -->
+  <text x="40" y="28" font-family="sans-serif" font-size="15" fill="#1565c0">メイン CPU 側 (上が高位)</text>
+  <rect x="40" y="40" width="300" height="46" fill="#f5f5f5" stroke="#333333"/>
+  <text x="48" y="58" font-family="sans-serif" font-size="12" fill="#333333">$FE00-$FFFF ブート ROM (起動時)</text>
+  <text x="48" y="76" font-family="sans-serif" font-size="12" fill="#666666">$FD0F へ書いた後は RAM。$FFF8 = IRQ ベクタ</text>
+  <rect x="40" y="86" width="300" height="30" fill="#f5f5f5" stroke="#333333"/>
+  <text x="48" y="106" font-family="sans-serif" font-size="12" fill="#333333">$FD00-$FDFF I/O (BREAK・$FD05・PSG・FDC)</text>
+  <rect x="40" y="116" width="300" height="58" fill="#fffde7" stroke="#795548"/>
+  <text x="48" y="134" font-family="sans-serif" font-size="12" fill="#333333">$FC80-$FCFF 共有 RAM 128 byte</text>
+  <text x="48" y="150" font-family="sans-serif" font-size="12" fill="#666666">$FC80- TEST ヘッダ、$FC83- 固定パラメータ、</text>
+  <text x="48" y="166" font-family="sans-serif" font-size="12" fill="#666666">$FC8B- サブコマンド、$FC93- コマンドキュー</text>
+  <rect x="40" y="174" width="300" height="30" fill="#ffffff" stroke="#333333"/>
+  <text x="48" y="194" font-family="sans-serif" font-size="12" fill="#333333">$FC7F から下へ スタック</text>
+  <rect x="40" y="204" width="300" height="30" fill="#f5f5f5" stroke="#333333"/>
+  <text x="48" y="224" font-family="sans-serif" font-size="12" fill="#333333">$FB00-$FBFF IPL の写し (ディスク起動の時だけ)</text>
+  <rect x="40" y="234" width="300" height="30" fill="#ffffff" stroke="#333333" stroke-dasharray="4,3"/>
+  <text x="48" y="254" font-family="sans-serif" font-size="12" fill="#666666">(空き。本体は $FA00 までに収める)</text>
+  <rect x="40" y="264" width="300" height="90" fill="#e3f2fd" stroke="#1565c0"/>
+  <text x="48" y="284" font-family="sans-serif" font-size="12" fill="#1565c0">$0400- 本体 (config.mk の ORG)</text>
+  <text x="48" y="302" font-family="sans-serif" font-size="12" fill="#666666">code → rodata (サブ側プログラムの原本・各表)</text>
+  <text x="48" y="320" font-family="sans-serif" font-size="12" fill="#666666">→ initgl → start → rwdata → bss (変数)</text>
+  <text x="48" y="338" font-family="sans-serif" font-size="12" fill="#666666">(bss は起動時にゼロクリアされない)</text>
+  <rect x="40" y="354" width="300" height="30" fill="#f5f5f5" stroke="#333333"/>
+  <text x="48" y="374" font-family="sans-serif" font-size="12" fill="#333333">$0100 IPL のロード先 (自前のブート ROM の場合)</text>
+  <!-- サブ側 -->
+  <text x="400" y="28" font-family="sans-serif" font-size="15" fill="#c62828">サブ CPU 側 (上が高位)</text>
+  <rect x="400" y="40" width="300" height="30" fill="#fffde7" stroke="#795548"/>
+  <text x="408" y="60" font-family="sans-serif" font-size="12" fill="#333333">$D380-$D3FF 共有 RAM (= メイン側 $FC80-)</text>
+  <rect x="400" y="70" width="300" height="30" fill="#ffffff" stroke="#333333"/>
+  <text x="408" y="90" font-family="sans-serif" font-size="12" fill="#333333">$CF80-$CFBF 自前のスタック 64 byte</text>
+  <rect x="400" y="100" width="300" height="44" fill="#fde8e8" stroke="#c62828"/>
+  <text x="408" y="118" font-family="sans-serif" font-size="12" fill="#c62828">$C100-$CF7F 描画プログラム + 絵 + 床の模様表</text>
+  <text x="408" y="136" font-family="sans-serif" font-size="12" fill="#666666">3,712 byte まで (check_layout.py が検査)</text>
+  <rect x="400" y="144" width="300" height="30" fill="#ffffff" stroke="#333333"/>
+  <text x="408" y="164" font-family="sans-serif" font-size="12" fill="#333333">$C020-$C0EF 消去の表 LIST0 / LIST1 (208 byte)</text>
+  <rect x="400" y="174" width="300" height="30" fill="#ffffff" stroke="#333333"/>
+  <text x="408" y="194" font-family="sans-serif" font-size="12" fill="#333333">$C000-$C01F 作業変数 (32 byte)</text>
+  <rect x="400" y="204" width="300" height="50" fill="#e8f5e9" stroke="#2e7d32"/>
+  <text x="408" y="224" font-family="sans-serif" font-size="12" fill="#2e7d32">$8000-$BFFF G プレーン (床と地平線)</text>
+  <text x="408" y="242" font-family="sans-serif" font-size="12" fill="#666666">末尾 $BE80- 384 byte は表示されない = 追加の絵</text>
+  <rect x="400" y="254" width="300" height="50" fill="#fde8e8" stroke="#c62828"/>
+  <text x="408" y="274" font-family="sans-serif" font-size="12" fill="#c62828">$4000-$7FFF R プレーン (ページ 1)</text>
+  <text x="408" y="292" font-family="sans-serif" font-size="12" fill="#666666">末尾 $7E80- 384 byte = 追加の絵</text>
+  <rect x="400" y="304" width="300" height="50" fill="#e3f2fd" stroke="#1565c0"/>
+  <text x="408" y="324" font-family="sans-serif" font-size="12" fill="#1565c0">$0000-$3FFF B プレーン (ページ 0)</text>
+  <text x="408" y="342" font-family="sans-serif" font-size="12" fill="#666666">末尾 $3E80- 384 byte = 追加の絵</text>
+  <text x="40" y="404" font-family="sans-serif" font-size="13" fill="#333333">サブ側の値は config.mk の SUB_* が正で、</text>
+  <text x="40" y="422" font-family="sans-serif" font-size="13" fill="#333333">asm_subprog.s と c_subprog.h の写しを、描画プログラムを組み立てるたびに突き合わせる。</text>
+  <text x="40" y="444" font-family="sans-serif" font-size="13" fill="#333333">各プレーンは先頭からのオフセット $0000-$3E7F の 16,000 byte だけが画面に出る。</text>
+  <text x="40" y="462" font-family="sans-serif" font-size="13" fill="#333333">VRAM を読み書きする時は VRAM ゲート ($D409) を開ける。</text>
+</svg>

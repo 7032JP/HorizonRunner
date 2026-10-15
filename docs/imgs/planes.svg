@@ -4,9 +4,9 @@
   <rect x="70" y="70" width="150" height="90" fill="#e8f5e9" stroke="#2e7d32"/>
   <rect x="50" y="50" width="150" height="90" fill="#fde8e8" stroke="#c62828"/>
   <rect x="30" y="30" width="150" height="90" fill="#e3f2fd" stroke="#1565c0"/>
-  <text x="40" y="50" font-family="sans-serif" font-size="14" fill="#1565c0">B $0000- (面 0)</text>
-  <text x="115" y="135" font-family="sans-serif" font-size="14" fill="#c62828">R $4000- (面 1)</text>
-  <text x="135" y="155" font-family="sans-serif" font-size="14" fill="#2e7d32">G $8000- (床)</text>
+  <text x="40" y="50" font-family="sans-serif" font-size="14" fill="#1565c0">B $0000- (ページ 0)</text>
+  <text x="58" y="135" font-family="sans-serif" font-size="13" fill="#c62828">R $4000- (ページ 1)</text>
+  <text x="78" y="155" font-family="sans-serif" font-size="13" fill="#2e7d32">G $8000- (床)</text>
   <!-- 同じ位置の画素 -->
   <circle cx="120" cy="80" r="4" fill="#1565c0"/>
   <circle cx="140" cy="100" r="4" fill="#c62828"/>
@@ -27,6 +27,6 @@
   <text x="642" y="105" font-family="sans-serif" font-size="13" fill="#333333">緑 $04</text>
   <rect x="540" y="116" width="16" height="16" fill="#000000"/>
   <text x="562" y="129" font-family="sans-serif" font-size="13" fill="#333333">黒 $00</text>
-  <text x="520" y="170" font-family="sans-serif" font-size="13" fill="#333333">8 個の色番号それぞれに色を割り当てる</text>
+  <text x="520" y="170" font-family="sans-serif" font-size="13" fill="#333333">色番号 8 個に色を割り当てる</text>
   <defs><marker id="a1" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#333333"/></marker></defs>
 </svg>

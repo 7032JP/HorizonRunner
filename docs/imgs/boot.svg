@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 740 330" width="740">
+  <rect x="0" y="0" width="740" height="330" fill="#ffffff"/>
+  <!-- ディスク -->
+  <text x="30" y="30" font-family="sans-serif" font-size="15" fill="#333333">ディスクから</text>
+  <rect x="30" y="45" width="150" height="80" fill="#f5f5f5" stroke="#333333"/>
+  <text x="38" y="65" font-family="sans-serif" font-size="12" fill="#333333">ブート ROM</text>
+  <text x="38" y="83" font-family="sans-serif" font-size="12" fill="#666666">track 0 / sector 1</text>
+  <text x="38" y="99" font-family="sans-serif" font-size="12" fill="#666666">(IPL) を読んで JMP</text>
+  <text x="38" y="115" font-family="sans-serif" font-size="12" fill="#666666">(自前の ROM: $0100)</text>
+  <line x1="180" y1="85" x2="205" y2="85" stroke="#333333" marker-end="url(#a7)"/>
+  <rect x="205" y="45" width="160" height="80" fill="#fffde7" stroke="#795548"/>
+  <text x="213" y="65" font-family="sans-serif" font-size="12" fill="#333333">IPL (asm_ipl.s)</text>
+  <text x="213" y="83" font-family="sans-serif" font-size="12" fill="#666666">自分を $FB00 へ写し、</text>
+  <text x="213" y="99" font-family="sans-serif" font-size="12" fill="#666666">sector 2 以降の本体を</text>
+  <text x="213" y="115" font-family="sans-serif" font-size="12" fill="#666666">$0400 へ展開して JMP</text>
+  <line x1="365" y1="85" x2="390" y2="85" stroke="#333333" marker-end="url(#a7)"/>
+  <rect x="390" y="45" width="150" height="80" fill="#e3f2fd" stroke="#1565c0"/>
+  <text x="398" y="65" font-family="sans-serif" font-size="12" fill="#1565c0">crt0 (asm_crt0.s)</text>
+  <text x="398" y="83" font-family="sans-serif" font-size="12" fill="#666666">IRQ/FIRQ をマスク</text>
+  <text x="398" y="99" font-family="sans-serif" font-size="12" fill="#666666">SP = $FC7F</text>
+  <text x="398" y="115" font-family="sans-serif" font-size="12" fill="#666666">JMP main</text>
+  <line x1="540" y1="85" x2="565" y2="85" stroke="#333333" marker-end="url(#a7)"/>
+  <rect x="565" y="45" width="150" height="80" fill="#e3f2fd" stroke="#1565c0"/>
+  <text x="573" y="65" font-family="sans-serif" font-size="12" fill="#1565c0">main() (c_main.c)</text>
+  <text x="573" y="83" font-family="sans-serif" font-size="12" fill="#666666">サブを乗っ取り、</text>
+  <text x="573" y="99" font-family="sans-serif" font-size="12" fill="#666666">タイマと入力を起こし、</text>
+  <text x="573" y="115" font-family="sans-serif" font-size="12" fill="#666666">タイトルへ</text>
+  <!-- テープ -->
+  <text x="30" y="175" font-family="sans-serif" font-size="15" fill="#333333">テープから (make t77)</text>
+  <rect x="30" y="190" width="150" height="96" fill="#f5f5f5" stroke="#333333"/>
+  <text x="38" y="210" font-family="sans-serif" font-size="12" fill="#333333">BASIC のローダー</text>
+  <text x="38" y="228" font-family="sans-serif" font-size="12" fill="#666666">RUN "CAS0:" で起動</text>
+  <text x="38" y="244" font-family="sans-serif" font-size="12" fill="#666666">CLEAR ,&amp;H13FF の後</text>
+  <text x="38" y="260" font-family="sans-serif" font-size="12" fill="#666666">LOADM "CAS0:",,R</text>
+  <text x="38" y="276" font-family="sans-serif" font-size="12" fill="#666666">で本体を読む</text>
+  <line x1="180" y1="238" x2="205" y2="238" stroke="#333333" marker-end="url(#a7)"/>
+  <rect x="205" y="190" width="160" height="96" fill="#fffde7" stroke="#795548"/>
+  <text x="213" y="210" font-family="sans-serif" font-size="12" fill="#333333">1 本の LOADM ファイル</text>
+  <text x="213" y="228" font-family="sans-serif" font-size="12" fill="#666666">[本体][ステージャ] を</text>
+  <text x="213" y="244" font-family="sans-serif" font-size="12" fill="#666666">$1400 から連続して読む</text>
+  <text x="213" y="260" font-family="sans-serif" font-size="12" fill="#666666">(末尾は $8000 未満)。</text>
+  <text x="213" y="276" font-family="sans-serif" font-size="12" fill="#666666">実行先はステージャ</text>
+  <line x1="365" y1="238" x2="390" y2="238" stroke="#333333" marker-end="url(#a7)"/>
+  <rect x="390" y="190" width="150" height="96" fill="#fffde7" stroke="#795548"/>
+  <text x="398" y="210" font-family="sans-serif" font-size="12" fill="#333333">ステージャ (30 byte)</text>
+  <text x="398" y="228" font-family="sans-serif" font-size="12" fill="#666666">IRQ/FIRQ をマスクし、</text>
+  <text x="398" y="244" font-family="sans-serif" font-size="12" fill="#666666">ROM を外し、</text>
+  <text x="398" y="260" font-family="sans-serif" font-size="12" fill="#666666">本体を $1400 から</text>
+  <text x="398" y="276" font-family="sans-serif" font-size="12" fill="#666666">$0400 へ前方コピー</text>
+  <line x1="540" y1="238" x2="565" y2="238" stroke="#333333" marker-end="url(#a7)"/>
+  <rect x="565" y="190" width="150" height="96" fill="#e3f2fd" stroke="#1565c0"/>
+  <text x="573" y="210" font-family="sans-serif" font-size="12" fill="#1565c0">本体へ</text>
+  <text x="573" y="228" font-family="sans-serif" font-size="12" fill="#666666">LDS #$FBFF、</text>
+  <text x="573" y="244" font-family="sans-serif" font-size="12" fill="#666666">JMP $0400 で</text>
+  <text x="573" y="260" font-family="sans-serif" font-size="12" fill="#666666">crt0 へ (以後は同じ)。</text>
+  <text x="573" y="276" font-family="sans-serif" font-size="12" fill="#666666">F-BASIC へは戻らない</text>
+  <text x="30" y="315" font-family="sans-serif" font-size="13" fill="#333333">どちらの経路でも本体は $0400 (config.mk の ORG) に置かれ、crt0 から先は同じ道を通る。</text>
+  <defs><marker id="a7" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#333333"/></marker></defs>
+</svg>

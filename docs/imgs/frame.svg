@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 740 400" width="740">
+  <rect x="0" y="0" width="740" height="400" fill="#ffffff"/>
+  <text x="30" y="28" font-family="sans-serif" font-size="15" fill="#333333">play() の 1 フレーム (c_main.c)</text>
+  <!-- 左列 -->
+  <rect x="30" y="45" width="330" height="40" fill="#f5f5f5" stroke="#333333"/>
+  <text x="40" y="62" font-family="sans-serif" font-size="12" fill="#333333">1. フレームの間隔を待つ (8 tick = 約 16.3ms)</text>
+  <text x="40" y="78" font-family="sans-serif" font-size="12" fill="#666666">timer_consume で超過分を次へ持ち越す</text>
+  <line x1="195" y1="85" x2="195" y2="98" stroke="#333333" marker-end="url(#a8)"/>
+  <rect x="30" y="100" width="330" height="40" fill="#f5f5f5" stroke="#333333"/>
+  <text x="40" y="117" font-family="sans-serif" font-size="12" fill="#333333">2. sound_tick() と、予約された得点・残機の書き直し</text>
+  <text x="40" y="133" font-family="sans-serif" font-size="12" fill="#666666">hud_service() は sub_sync() の後で WRITE を送る</text>
+  <line x1="195" y1="140" x2="195" y2="153" stroke="#333333" marker-end="url(#a8)"/>
+  <rect x="30" y="155" width="330" height="40" fill="#f5f5f5" stroke="#333333"/>
+  <text x="40" y="172" font-family="sans-serif" font-size="12" fill="#333333">3. 入力: input_dir() の方向で自機を動かす</text>
+  <text x="40" y="188" font-family="sans-serif" font-size="12" fill="#666666">方向はラッチ保持。被弾の演出中は動かさない</text>
+  <line x1="195" y1="195" x2="195" y2="208" stroke="#333333" marker-end="url(#a8)"/>
+  <rect x="30" y="210" width="330" height="40" fill="#e8f5e9" stroke="#2e7d32"/>
+  <text x="40" y="227" font-family="sans-serif" font-size="12" fill="#2e7d32">4. 地平線 (自機の高さから) と床の帯 (z_lo + zoff) を組む</text>
+  <text x="40" y="243" font-family="sans-serif" font-size="12" fill="#666666">乗除算は置かない。帯は最大 24 本</text>
+  <line x1="195" y1="250" x2="195" y2="263" stroke="#333333" marker-end="url(#a8)"/>
+  <rect x="30" y="265" width="330" height="40" fill="#f5f5f5" stroke="#333333"/>
+  <text x="40" y="282" font-family="sans-serif" font-size="12" fill="#333333">5. 自弾を出し (空きのある分だけ)、スクリプトを読む</text>
+  <text x="40" y="298" font-family="sans-serif" font-size="12" fill="#666666">spawn() で出現させ、boss_update() でボスを動かす</text>
+  <!-- 右列 -->
+  <polyline points="360,285 372,285 372,70 385,70" fill="none" stroke="#333333" marker-end="url(#a8)"/>
+  <rect x="385" y="45" width="330" height="50" fill="#e3f2fd" stroke="#1565c0"/>
+  <text x="395" y="62" font-family="sans-serif" font-size="12" fill="#1565c0">6. 固定パラメータ: PAGE → SCENE → SPRITE (自機)</text>
+  <text x="395" y="78" font-family="sans-serif" font-size="12" fill="#666666">無敵中は自機を 2 フレームごとに点滅させる</text>
+  <line x1="550" y1="95" x2="550" y2="108" stroke="#333333" marker-end="url(#a8)"/>
+  <rect x="385" y="110" width="330" height="112" fill="#e3f2fd" stroke="#1565c0"/>
+  <text x="395" y="127" font-family="sans-serif" font-size="12" fill="#1565c0">7. OBJS (最大 25 個) を 1 命令に詰める</text>
+  <text x="395" y="143" font-family="sans-serif" font-size="12" fill="#666666">自弾を進める → 地上物 → 自弾 → 敵・岩 → ボス → 敵弾</text>
+  <text x="395" y="159" font-family="sans-serif" font-size="12" fill="#666666">→ 自機の爆発、の順に「進める・当てる・積む」</text>
+  <text x="395" y="175" font-family="sans-serif" font-size="12" fill="#666666">当たり判定は 8bit の矩形比較。敵・岩・地上物は奥行きの</text>
+  <text x="395" y="191" font-family="sans-serif" font-size="12" fill="#666666">段階も比べ、敵弾は経過フレームで当たる区間を決める</text>
+  <text x="395" y="207" font-family="sans-serif" font-size="12" fill="#666666">被弾の演出中 (pl_die) は自機の爆発以外を止める</text>
+  <line x1="550" y1="222" x2="550" y2="235" stroke="#333333" marker-end="url(#a8)"/>
+  <rect x="385" y="237" width="330" height="84" fill="#fde8e8" stroke="#c62828"/>
+  <text x="395" y="254" font-family="sans-serif" font-size="12" fill="#c62828">8. sub_sync() で前のフレームの描き上がりを待つ</text>
+  <text x="395" y="270" font-family="sans-serif" font-size="12" fill="#666666">palette_page() でそのページを表に出す</text>
+  <text x="395" y="286" font-family="sans-serif" font-size="12" fill="#666666">sub_flush_async() で今のキューをサブへ投げる</text>
+  <text x="395" y="302" font-family="sans-serif" font-size="12" fill="#666666">描くページを入れ替えて 1 へ戻る (サブは並列に描く)</text>
+  <polyline points="550,321 550,334 16,334 16,65 28,65" fill="none" stroke="#333333" stroke-dasharray="4,3" marker-end="url(#a8)"/>
+  <text x="30" y="360" font-family="sans-serif" font-size="13" fill="#333333">8 tick x 約 2ms = 約 16.3ms で 1 フレーム (約 61fps)。</text>
+  <text x="30" y="378" font-family="sans-serif" font-size="13" fill="#333333">メインの計算はサブが前のフレームを描いている間に進める (2. の書き直しがある時は先に待つ)。</text>
+  <defs><marker id="a8" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#333333"/></marker></defs>
+</svg>
